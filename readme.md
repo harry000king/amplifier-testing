@@ -1,3 +1,5 @@
+![example](docs/example.png)
+
 # Installation
 1. Install python: https://www.python.org/
 2. Install VSCode: https://code.visualstudio.com/

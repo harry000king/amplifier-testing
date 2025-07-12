@@ -29,20 +29,20 @@ import cv2
 
 def main():
     make_png_series(
-        intdir = r"C:\Users\harry\Downloads\test2",
-        fileinterval = 1,
-        # starttime = "2025-06-25 11:44:00", # "2025-06-25 11:44:00"
-        # stoptime = "2025-06-25 11:48:00", # "2025-06-25 11:48:00"
+        intdir = r"S:\Amplifier testing 2024\20250625\Series 1\HASO data",
+        fileinterval = 100,
+        starttime = "2025-06-25 10:40:00", # "2025-06-25 11:44:00"
+        stoptime = "2025-06-25 11:00:00", # "2025-06-25 11:48:00"
         removetilt = False,
         cbar_mode = "percentiles",
-        exportvideo = True,
+        background_time = ["2025-06-25 10:45:40", "2025-06-25 10:45:41"] # ["2025-06-25 10:45:40", "2025-06-25 10:47:30"]
     )
     # video_from_pngs(r"C:\Users\harry\Documents\py_vid\out\20250711-101355")
 
 def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
               stoptime:str=None, removetilt:bool=True, terms=None,
               cbar_mode:str="percentiles", cbar_values:tuple=None,
-              exportvideo=False):
+              background_time:str|tuple=None):
     """Run this function first to generate series of .png files.
     
     Args:
@@ -63,6 +63,12 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
             - "percentiles" - cbar_values defaults to (0.1, 99.9) but can
               also be manually specified
         * cbar_values: Behaviour depends on cbar_mode (see above)
+        * background_time: Timestamp of frame to use as background for zeroing
+          wavefront. Behaviour depends on type:
+            - None: no background subtraction
+            - "2025-06-25 11:44:00": round this to nearest frame
+            - ("2025-06-25 11:44:00", "2025-06-25 11:48:00"): average over
+              this time range
     """
     parent = Path.home() / "Documents" / "py_vid"
     safe_mkdir(parent)
@@ -81,14 +87,20 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
         save_cache(cachedir, times, wavefronts, coeffs, coefftype)
     if terms == None:
         terms = get_default_terms(removetilt, terms, coefftype)
+    background = get_background(times, wavefronts, background_time)
     times, wavefronts, coeffs = downselect(times, wavefronts, coeffs, 
                                            fileinterval, starttime, stoptime)
+    message = ""
+    if background is not None:
+        message += "Subtracting background, "
     if removetilt:
-        print("Calculating RMS and removing tip/tilt")
-    else:
-        print("Calculating RMS")
+        message += "filtering tip/tilt, "
+    message += "Computing RMS"
+    print(message)
     RMS = []
     for i, wavefront in tqdm(enumerate(wavefronts)):
+        if background is not None:
+            pass
         if removetilt:
             wavefronts[i] = remove_tilt(wavefront)
         RMS.append(np.sqrt(np.nanmean(wavefront**2)))
@@ -217,6 +229,45 @@ def downselect(times, wavefronts, coeffs, fileinterval, starttime,
     sliceidx = sliceidx[starttime:stoptime].to_numpy()
     sliceidx = sliceidx[::fileinterval]
     return (times[sliceidx], wavefronts[sliceidx], coeffs[sliceidx])
+
+def get_background(times, wavefronts, background_time):
+    if background_time == None:
+        return None
+    elif type(background_time) == str:
+        sliceidx = pd.Series(np.arange(len(times)), index=times)
+        idx = sliceidx.index.get_indexer([background_time], method="nearest")[0]
+        print("Using background at:", times[idx])
+        return wavefronts[idx]
+    elif len(background_time) == 2:
+        sliceidx = pd.Series(np.arange(len(times)), index=times)
+        temp = sliceidx[background_time[0]:background_time[1]]
+        firsttime = temp.index[0]
+        lasttime = temp.index[-1]
+        myslice = temp.to_numpy()
+        print(f"Generating background: averaging {len(myslice)} frames"
+              f" {firsttime} -> {lasttime}")
+        background = np.nanmean(wavefronts[myslice], axis=0)
+        display_background(background, firsttime, lasttime, len(myslice))
+        return background
+    else:
+        raise ValueError("background_time must be None, a string or a tuple "
+                         "of two strings")
+    
+def display_background(background, firsttime, lasttime, frames):
+    fig = plt.figure(layout="constrained", figsize=(12, 5))
+    fig.suptitle(f"Averaged background: {firsttime} -> {lasttime} "
+                  f"({frames} frames)\nWill be subtracted from every frame")
+    [ax0, ax1] = fig.subplots(1, 2)
+    im0 = ax0.imshow(background, cmap="viridis")
+    im_ratio = background.shape[0] / background.shape[1]
+    fig.colorbar(im0, ax=ax0, fraction=0.047*im_ratio,
+                 label="Wavefront $(\\mu m)$")
+    ax0.set_title("With tilt")
+    im1 = ax1.imshow(remove_tilt(background), cmap="viridis")
+    fig.colorbar(im1, ax=ax1, fraction=0.047*im_ratio,
+                 label="Wavefront $(\\mu m)$")
+    ax1.set_title("No tilt")
+    fig.savefig("background.png")
 
 def plotframes(wavefronts, times, minval, maxval, outdir:Path, figtitle,
                coeffs, RMS, index, removetilt, coefftype, terms):
@@ -374,42 +425,7 @@ def get_cbar_scale(wavefronts, cbar_mode, cbar_values):
 if __name__ == "__main__":
     main()
 
-
-
-
-# Colormap options:
-# - gray
-# - Greys - inverted grayscale
-# - plasma
-
-
-
-
-
-
-
-
-# Is removing tilt a problem for Zernikes because pupil not round?
-# - I don't think so - I think background subtraction is the main issue
-
-# Subtract background option / zeroing:
-# - Start by averaging over a range of frames. Also display averaged background for debug purposes
-# - Tricky for Zernikes - pupil not round. Print a warning? Or refuse to re-compute zernike terms
-# - Is it definitely OK for legendres?? Need to check the algebra - never finished thinking about this
-
-# Background subtraction behaviour:
-# - Enter a time: this is the background - exact or round to nearest?
-# - Enter time range: average over these
-# - Should be same format as starttime and stoptime: 2025-06-25 11:44:00
-# - This needs substantial thought => upload to GitHub first
-
-# Create version of this script for prompt aberration
-# - Big number in top left
-
-# Upload to GitHub
-# - Re-build a more sensible working directory (in projects folder)
-# - Package using poetry
-# - Compile to binary??
-
-# Twitches
-# - Slight twitch in legend for each new subprocess
+# Runtime warning: Mean of empty slice
+# Also display background for str option
+# Background_time slice limits don't quite work in the way I was expecting - they aren't upper and lower bounds
+# Add nice picture to readme.md for github
