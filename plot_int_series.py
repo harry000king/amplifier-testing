@@ -35,11 +35,11 @@ def main():
     make_png_series(
         intdir = r"S:\Amplifier testing 2024\20250625\Series 1\HASO data",
         fileinterval = 100,
-        starttime = "2025-06-25 10:40:00.0", # "2025-06-25 11:44:00"
-        stoptime = "2025-06-25 11:00:00.0", # "2025-06-25 11:48:00"
+        starttime = "2025-06-25 11:43:33.0", # "2025-06-25 11:44:00"
+        stoptime = "2025-06-25 11:47:26.0", # "2025-06-25 11:48:00"
         removetilt = False,
         cbar_mode = "percentiles",
-        # background_time = ["2025-06-25 10:45:40", "2025-06-25 10:45:41"] # ["2025-06-25 10:45:40", "2025-06-25 10:47:30"]
+        background_time = ["2025-06-25 10:45:40.9", "2025-06-25 10:47:50.9"] # ["2025-06-25 10:45:40", "2025-06-25 10:47:30"]
     )
     # video_from_pngs(r"C:\Users\harry\Documents\py_vid\out\20250711-101355")
 
@@ -93,7 +93,8 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
         save_cache(cachedir, times, wavefronts, coeffs, coefftype)
     if terms == None:
         terms = get_default_terms(removetilt, terms, coefftype)
-    background = get_background(times, wavefronts, background_time)
+    background, bgtext = get_background(times, wavefronts, background_time,
+                                          outdir)
     times, wavefronts, coeffs = downselect(times, wavefronts, coeffs, 
                                            fileinterval, starttime, stoptime)
     message = ""
@@ -119,7 +120,7 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
     for i in range(0, cores):
         args.append([wavefronts[index_split[i]], times, minval, maxval, outdir,
                      intdir, coeffs, RMS, index_split[i], removetilt,
-                     coefftype, terms])
+                     coefftype, terms, bgtext])
     print(f"Plotting with {cores} subprocesses")
     with Pool(cores) as p:
         p.starmap(plotframes, args)
@@ -236,9 +237,9 @@ def downselect(times, wavefronts, coeffs, fileinterval, starttime,
     sliceidx = sliceidx[::fileinterval]
     return (times[sliceidx], wavefronts[sliceidx], coeffs[sliceidx])
 
-def get_background(times, wavefronts, background_time):
+def get_background(times, wavefronts, background_time, outdir):
     if background_time == None:
-        return None
+        return None, None
     elif type(background_time) == str:
         sliceidx = pd.Series(np.arange(len(times)), index=times)
         idx = sliceidx.index.get_indexer([background_time], method="nearest")[0]
@@ -246,8 +247,9 @@ def get_background(times, wavefronts, background_time):
         background = wavefronts[idx]
         title = (f"Background: {times[idx]}"
                  "\nWill be subtracted from every frame")
-        display_background(background, title)
-        return background
+        display_background(background, title, outdir)
+        plottext = f"Subtracted background:\n{times[idx]}"
+        return background, plottext
     elif len(background_time) == 2:
         sliceidx = pd.Series(np.arange(len(times)), index=times)
         temp = sliceidx[background_time[0]:background_time[1]]
@@ -263,13 +265,15 @@ def get_background(times, wavefronts, background_time):
         title = (f"Averaged background: {firsttime} -> {lasttime} "
                  f"({len(myslice)} frames)\nWill be subtracted from every "
                  "frame")
-        display_background(background, title)
-        return background
+        display_background(background, title, outdir)
+        plottext = (f"Subtracted background:\nAvg {firsttime}\n-> {lasttime}\n"
+                    f"({len(myslice)} frames)")
+        return background, plottext
     else:
         raise ValueError("background_time must be None, a string or a tuple "
                          "of two strings")
     
-def display_background(background, title):
+def display_background(background, title, outdir):
     fig = plt.figure(layout="constrained", figsize=(12, 5))
     fig.suptitle(title)
     [ax0, ax1] = fig.subplots(1, 2)
@@ -282,10 +286,10 @@ def display_background(background, title):
     fig.colorbar(im1, ax=ax1, fraction=0.047*im_ratio,
                  label="Wavefront $(\\mu m)$")
     ax1.set_title("No tilt")
-    fig.savefig("background.png")
+    fig.savefig(outdir / "background.png")
 
 def plotframes(wavefronts, times, minval, maxval, outdir:Path, figtitle,
-               coeffs, RMS, index, removetilt, coefftype, terms):
+               coeffs, RMS, index, removetilt, coefftype, terms, bgtext):
     legendre_names = (["L01 tilt 0", "L02 tilt 90", "L03 cylinder 0",
                        "L04 astig 45", "L05 cylinder 90", "L06 linear coma 0",
                        "L07", "L08", "L09 linear coma 90"]
@@ -343,6 +347,9 @@ def plotframes(wavefronts, times, minval, maxval, outdir:Path, figtitle,
     if removetilt:
         ax0.text(0.97, 0.94, "filtered tip/tilt", transform=ax0.transAxes,
                  ha="right", va="top")
+    if bgtext is not None:
+        ax0.text(0.99, 0.90, bgtext, transform=ax0.transAxes, ha="right",
+                 va="top", fontsize=8)
     for i in tqdm(index):
         fmttime = times[i].strftime("%Y_%m_%d_%Hh_%Mmin_%Ss_%fus")
         wavefront = wavefronts[i-index[0]]
@@ -449,10 +456,14 @@ if __name__ == "__main__":
 # - RdBu_r
 
 
+# - Add text on plot declaring background subtraction
+
+
 
 # Should background subtraction occur before or after tilt removal?
 # - Before because always linear?
 # - Subtract background first, because want to make sure there's definitely no tilt left over in the final image
+
 
 # Background subtraction and zeroing for Zernike vs Legendre coeffs
 # - Legendre: easier case - deal with this first
@@ -463,3 +474,8 @@ if __name__ == "__main__":
 
 # Twitches
 # - Slight twitch in legend for each new subprocess
+
+# Printing background subtraction info on the plot
+# Subtracted background: Avg ddd -> ddd (xxx frames)
+# Subtracted background: ddd
+# - Get 
