@@ -10,6 +10,9 @@ video_from_pngs() can be used to combine the .png images into a video.
 I recommend Nomacs image viewer for viewing .png files generated
 https://nomacs.org/docs/getting-started/installation/. This allows easy
 scrolling between images
+
+NB: Currently, Legendre/Zernike coefficients displayed do not take background
+subtraction into account. But RMS does.
 """
 
 import numpy as np
@@ -26,16 +29,17 @@ import os
 from multiprocessing import Pool
 from datetime import datetime
 import cv2
+import warnings
 
 def main():
     make_png_series(
         intdir = r"S:\Amplifier testing 2024\20250625\Series 1\HASO data",
         fileinterval = 100,
-        starttime = "2025-06-25 10:40:00", # "2025-06-25 11:44:00"
-        stoptime = "2025-06-25 11:00:00", # "2025-06-25 11:48:00"
+        starttime = "2025-06-25 10:40:00.0", # "2025-06-25 11:44:00"
+        stoptime = "2025-06-25 11:00:00.0", # "2025-06-25 11:48:00"
         removetilt = False,
         cbar_mode = "percentiles",
-        background_time = ["2025-06-25 10:45:40", "2025-06-25 10:45:41"] # ["2025-06-25 10:45:40", "2025-06-25 10:47:30"]
+        # background_time = ["2025-06-25 10:45:40", "2025-06-25 10:45:41"] # ["2025-06-25 10:45:40", "2025-06-25 10:47:30"]
     )
     # video_from_pngs(r"C:\Users\harry\Documents\py_vid\out\20250711-101355")
 
@@ -50,7 +54,7 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
         * fileinterval: Number of files to skip between each plotted wavefront.
           Increase this number to plot faster at lower time resolution.
         * starttime: Time to begin series. String with format "2025-03-10
-          09:17:36" or None.
+          09:17:36.0" or None.
         * stoptime: Time to end series.
         * removetilt: Switch for removing tip/tilt from wavefront maps.
         * terms: Indices of zernike or legendre coefficients to plot in graph.
@@ -66,9 +70,11 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
         * background_time: Timestamp of frame to use as background for zeroing
           wavefront. Behaviour depends on type:
             - None: no background subtraction
-            - "2025-06-25 11:44:00": round this to nearest frame
-            - ("2025-06-25 11:44:00", "2025-06-25 11:48:00"): average over
-              this time range
+            - "2025-06-25 11:44:00.0": round this to nearest frame
+            - ("2025-06-25 11:44:00.0", "2025-06-25 11:48:00.0"): average over
+              this time range. NB: it is best to specify milliseconds, even if
+              zero, otherwise slice will be taken up to the *end* of the second
+              specified
     """
     parent = Path.home() / "Documents" / "py_vid"
     safe_mkdir(parent)
@@ -100,7 +106,7 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
     RMS = []
     for i, wavefront in tqdm(enumerate(wavefronts)):
         if background is not None:
-            pass
+            wavefronts[i] = wavefront - background
         if removetilt:
             wavefronts[i] = remove_tilt(wavefront)
         RMS.append(np.sqrt(np.nanmean(wavefront**2)))
@@ -237,7 +243,11 @@ def get_background(times, wavefronts, background_time):
         sliceidx = pd.Series(np.arange(len(times)), index=times)
         idx = sliceidx.index.get_indexer([background_time], method="nearest")[0]
         print("Using background at:", times[idx])
-        return wavefronts[idx]
+        background = wavefronts[idx]
+        title = (f"Background: {times[idx]}"
+                 "\nWill be subtracted from every frame")
+        display_background(background, title)
+        return background
     elif len(background_time) == 2:
         sliceidx = pd.Series(np.arange(len(times)), index=times)
         temp = sliceidx[background_time[0]:background_time[1]]
@@ -246,17 +256,22 @@ def get_background(times, wavefronts, background_time):
         myslice = temp.to_numpy()
         print(f"Generating background: averaging {len(myslice)} frames"
               f" {firsttime} -> {lasttime}")
-        background = np.nanmean(wavefronts[myslice], axis=0)
-        display_background(background, firsttime, lasttime, len(myslice))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            background = np.nanmean(wavefronts[myslice], axis=0)
+            # NB: RuntimeWarning because some pixels are np.nan for all frames
+        title = (f"Averaged background: {firsttime} -> {lasttime} "
+                 f"({len(myslice)} frames)\nWill be subtracted from every "
+                 "frame")
+        display_background(background, title)
         return background
     else:
         raise ValueError("background_time must be None, a string or a tuple "
                          "of two strings")
     
-def display_background(background, firsttime, lasttime, frames):
+def display_background(background, title):
     fig = plt.figure(layout="constrained", figsize=(12, 5))
-    fig.suptitle(f"Averaged background: {firsttime} -> {lasttime} "
-                  f"({frames} frames)\nWill be subtracted from every frame")
+    fig.suptitle(title)
     [ax0, ax1] = fig.subplots(1, 2)
     im0 = ax0.imshow(background, cmap="viridis")
     im_ratio = background.shape[0] / background.shape[1]
@@ -425,7 +440,26 @@ def get_cbar_scale(wavefronts, cbar_mode, cbar_values):
 if __name__ == "__main__":
     main()
 
-# Runtime warning: Mean of empty slice
-# Also display background for str option
-# Background_time slice limits don't quite work in the way I was expecting - they aren't upper and lower bounds
-# Add nice picture to readme.md for github
+
+# Colormap options:
+# - gray
+# - Greys - inverted grayscale
+# - plasma
+# - viridis
+# - RdBu_r
+
+
+
+# Should background subtraction occur before or after tilt removal?
+# - Before because always linear?
+# - Subtract background first, because want to make sure there's definitely no tilt left over in the final image
+
+# Background subtraction and zeroing for Zernike vs Legendre coeffs
+# - Legendre: easier case - deal with this first
+# - Zernike: not rectangular pupil
+
+# Create version of this script for prompt aberration
+# - Big number in top left
+
+# Twitches
+# - Slight twitch in legend for each new subprocess
