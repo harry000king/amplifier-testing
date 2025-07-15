@@ -32,16 +32,16 @@ import cv2
 import warnings
 
 def main():
-    make_png_series(
-        intdir = r"S:\Amplifier testing 2024\20250625\Series 1\HASO data",
-        fileinterval = 100,
-        starttime = "2025-06-25 11:43:33.0", # "2025-06-25 11:44:00"
-        stoptime = "2025-06-25 11:47:26.0", # "2025-06-25 11:48:00"
-        removetilt = False,
-        cbar_mode = "percentiles",
-        background_time = ["2025-06-25 10:45:40.9", "2025-06-25 10:47:50.9"] # ["2025-06-25 10:45:40", "2025-06-25 10:47:30"]
-    )
-    # video_from_pngs(r"C:\Users\harry\Documents\py_vid\out\20250711-101355")
+    # make_png_series(
+    #     intdir = r"S:\Amplifier testing 2024\20250625\Series 1\HASO data",
+    #     fileinterval = 1,
+    #     starttime = "2025-06-25 11:44:36.1", # "2025-06-25 11:44:00"
+    #     stoptime = "2025-06-25 11:46:01.6", # "2025-06-25 11:48:00"
+    #     removetilt = False,
+    #     cbar_mode = "percentiles",
+    #     background_time = ["2025-06-25 10:45:40.9", "2025-06-25 10:47:50.9"] # ["2025-06-25 10:45:40", "2025-06-25 10:47:30"]
+    # )
+    video_from_pngs(r"C:\Users\harry\Documents\py_vid\out\20250714-152558")
 
 def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
               stoptime:str=None, removetilt:bool=True, terms=None,
@@ -59,7 +59,6 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
         * removetilt: Switch for removing tip/tilt from wavefront maps.
         * terms: Indices of zernike or legendre coefficients to plot in graph.
           It is recommended to use the default unless fine control is needed.
-          np.arange(0, 10) for Zernikes while reacting to removetilt flag.
         * cbar_mode: Determines how colorbar will be scaled - 4 options:
             - "variable" - autoscale for every frame
             - "minmax" - fixed scale based on global min/max wavefront
@@ -127,7 +126,12 @@ def make_png_series(intdir:str, fileinterval:int=1, starttime:str=None,
     os.startfile(outdir)
 
 def video_from_pngs(outdir, fps=20):
-    """Run this function after make_png_series()"""
+    """Run this function after make_png_series()
+    
+    Args:
+        * outdir: Folder path containing "img" directory
+        * fps: Frames per second of video
+    """
     print("Building .mp4 from .png series")
     outdir = Path(outdir)
     pngdir = outdir / "img"
@@ -144,6 +148,7 @@ def video_from_pngs(outdir, fps=20):
         video.write(frame)
     video.release()
     print("Saved ->", outfile)
+    os.startfile(outdir)
 
 def get_default_terms(removetilt, terms, coefftype):
     if coefftype == "legendre":
@@ -456,8 +461,6 @@ if __name__ == "__main__":
 # - RdBu_r
 
 
-# - Add text on plot declaring background subtraction
-
 
 
 # Should background subtraction occur before or after tilt removal?
@@ -475,7 +478,3 @@ if __name__ == "__main__":
 # Twitches
 # - Slight twitch in legend for each new subprocess
 
-# Printing background subtraction info on the plot
-# Subtracted background: Avg ddd -> ddd (xxx frames)
-# Subtracted background: ddd
-# - Get 
